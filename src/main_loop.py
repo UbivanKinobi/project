@@ -1,7 +1,7 @@
-from videoutils import WebcamVideoStream
-from videoutils import FPS
-from detectors import ClassicalDetector
-from model import NN
+from src.videoutils import WebcamVideoStream
+from src.videoutils import FPS
+from src.detectors import ClassicalDetector
+from src.model import NN
 import time
 import cv2
 
@@ -27,10 +27,9 @@ class TimeContainer:
         self.landmarks_arr.clear()
 
 
-def main():
+def loop():
     print('[INFO] Loading network...')
-    nn = NN(path_to_insiders_folder='insiders_data', path_to_graph='frozen_graph.pb')
-    # nn.save('insiders_img', 'insiders_data')
+    nn = NN()
     print('[INFO] Done')
 
     print('[INFO] Loading detectors...')
@@ -131,4 +130,4 @@ def access_denied(stream, camera_shape):
 
 
 if __name__ == '__main__':
-    main()
+    loop()

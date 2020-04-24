@@ -1,12 +1,16 @@
 from skimage import transform as trans
 from scipy import spatial
 from PIL import Image
-from detectors import detect_face_mtcnn
+from src.detectors import detect_face_mtcnn
 import numpy as np
 import cv2
 import tensorflow as tf
-import os
 import pickle
+
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+from tensorflow.python.util import deprecation
+deprecation._PRINT_DEPRECATION_WARNINGS = False
 
 
 def transforms(image, landmarks, mtcnn=False):
@@ -29,8 +33,8 @@ def transforms(image, landmarks, mtcnn=False):
 
 
 def load_graph(frozen_graph_filename):
-    with tf.gfile.GFile(frozen_graph_filename, "rb") as f:
-        graph_def = tf.GraphDef()
+    with tf.io.gfile.GFile(frozen_graph_filename, "rb") as f:
+        graph_def = tf.compat.v1.GraphDef()
         graph_def.ParseFromString(f.read())
 
     with tf.Graph().as_default() as graph:
@@ -40,22 +44,26 @@ def load_graph(frozen_graph_filename):
 
 
 class NN:
-    def __init__(self, path_to_insiders_folder, path_to_graph: str = 'frozen_graph.pb', threshold: float = 0.9):
+    def __init__(self, load: bool = True, threshold: float = 0.9):
+        path_to_graph = 'src/frozen_graph.pb'
         self.graph = load_graph(path_to_graph)
-        self.sess = tf.Session(graph=self.graph)
+        self.sess = tf.compat.v1.Session(graph=self.graph)
         self.input = self.graph.get_tensor_by_name('img_inputs:0')
         self.output = self.graph.get_tensor_by_name('embeddings:0')
-        if path_to_insiders_folder is not None:
-            self.insiders = np.load(os.path.join(path_to_insiders_folder, 'insiders.npy'))
-            self.classes = load_obj(os.path.join(path_to_insiders_folder, 'classes.pkl'))
-        self.threshold = threshold
         feed_dict = {self.input: np.zeros((1, 112, 112, 3))}
         self.sess.run(self.output, feed_dict=feed_dict)
+        self.threshold = threshold
+        if load:
+            self.insiders = np.load('src/insiders_data/embeddings_matrix.npy')
+            self.classes = load_obj('src/insiders_data/classes.pkl')
+        else:
+            self.insiders = None
+            self.classes = {}
 
     def predict(self, images, landmarks_arr):
         if len(self.insiders) == 0:
-            print('Не указаны лица имеющие доступ')
-            return
+            print('Insiders are not indicated')
+            return -1
 
         data = [transforms(image, landmarks) for image, landmarks in zip(images, landmarks_arr)]
         data = np.concatenate(data, axis=0)
@@ -67,7 +75,11 @@ class NN:
         min_arg = np.argmin(distances, axis=0)
         classes = self.insiders[min_arg, -1].astype('int')
         min_distances = np.array([distances[arg, i] for i, arg in enumerate(min_arg)])
-        print(min_distances)
+
+        print(np.mean(min_distances))
+        with open('src/min_distances.log', 'a') as file:
+            file.write(str(np.mean(min_distances)) + '\n')
+
         ans = sum((min_distances < self.threshold).astype('int'))/min_distances.size
         if ans > 0.5:
             classes = list(classes)
@@ -75,40 +87,28 @@ class NN:
         else:
             return -1
 
-    def save(self, dataset_folder: str, output_folder: str):
-        self.insiders = None
-        self.classes = {}
+    def get_embedding(self, path_to_image):
+        image = Image.open(path_to_image)
+        _, landmarks = detect_face_mtcnn(image)
+        if landmarks is None:
+            print('No faces in the image: ' + path_to_image)
+            return -1
 
-        folders = os.listdir(dataset_folder)
-        for i, folder in enumerate(folders):
-            self.classes[i] = folder
-            fol_path = os.path.join(dataset_folder, folder)
-            image_names = os.listdir(fol_path)
+        data = transforms(np.array(image), landmarks, mtcnn=True)
 
-            for name in image_names:
-                im_path = os.path.join(fol_path, name)
-                image = Image.open(im_path)
-                _, landmarks = detect_face_mtcnn(image)
+        feed_dict = {self.input: data}
+        embeddings = self.sess.run(self.output, feed_dict=feed_dict)
+        return embeddings
 
-                data = transforms(np.array(image), landmarks, mtcnn=True)
-
-                feed_dict = {self.input: data}
-                embeddings = self.sess.run(self.output, feed_dict=feed_dict)
-                embeddings_plus_class = np.append(embeddings, i)
-
-                if self.insiders is None:
-                    self.insiders = np.expand_dims(embeddings_plus_class, 0)
-                else:
-                    self.insiders = np.vstack([self.insiders, np.expand_dims(embeddings_plus_class, 0)])
-
-        np.save(os.path.join(output_folder, 'insiders'), self.insiders)
-        save_obj(self.classes, os.path.join(output_folder, 'classes'))
+    def save_data(self):
+        np.save('src/insiders_data/embeddings_matrix', self.insiders)
+        save_obj('src/insiders_data/classes', self.classes)
 
     def close(self):
         self.sess.close()
 
 
-def save_obj(obj, name):
+def save_obj(name, obj):
     with open(name + '.pkl', 'wb') as f:
         pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
 

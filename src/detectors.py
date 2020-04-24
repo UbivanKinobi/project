@@ -1,4 +1,4 @@
-from mtcnn.src import detect_faces
+from src.mtcnn.src import detect_faces
 import cv2
 import dlib
 import numpy as np
@@ -22,8 +22,8 @@ def shape_to_np(shape, dtype="int"):
 
 
 class ClassicalDetector:
-    def __init__(self, face_detector: str = 'haarcascade_frontalface_default.xml', 
-                 shape_predictor: str = '5_landmarks_predictor.dat'):
+    def __init__(self, face_detector: str = 'src/haarcascade_frontalface_default.xml',
+                 shape_predictor: str = 'src/5_landmarks_predictor.dat'):
         self.face_detector = cv2.CascadeClassifier(face_detector)
         self.shape_predictor = dlib.shape_predictor(shape_predictor)
 
@@ -43,10 +43,10 @@ class ClassicalDetector:
 
 
 def detect_face_mtcnn(image):
-    try:
-        bboxes, landmarks_arr = detect_faces(image)
-    except:
-        return None, None
+    #try:
+    bboxes, landmarks_arr = detect_faces(image)
+    #except:
+    #    return None, None
 
     # if no faces return None
     if len(bboxes) == 0 or len(landmarks_arr) == 0:
