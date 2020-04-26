@@ -70,4 +70,4 @@ class WebcamVideoStream:
         self.stopped = True
 
     def is_opened(self):
-        return self.is_opened()
+        return self.stream.isOpened()
