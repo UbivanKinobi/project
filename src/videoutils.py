@@ -68,3 +68,6 @@ class WebcamVideoStream:
     def stop(self):
         # indicate that the thread should be stopped
         self.stopped = True
+
+    def is_opened(self):
+        return self.is_opened()

@@ -38,6 +38,9 @@ def loop():
 
     print('[INFO] Starting webcam stream...')
     stream = WebcamVideoStream(src=0).start()
+    if not stream.is_opened():
+        print('Error: failed to connect to camera')
+        return
     time.sleep(2.0)
     fps = FPS().start()
     print('[INFO] Done')
