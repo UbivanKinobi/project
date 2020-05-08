@@ -60,30 +60,26 @@ class NN:
             self.insiders = None
             self.classes = {}
 
-    def predict(self, images, landmarks_arr):
+    def predict(self, image, landmarks):
         if len(self.insiders) == 0:
             print('Insiders are not indicated')
             return -1
 
-        data = [transforms(image, landmarks) for image, landmarks in zip(images, landmarks_arr)]
-        data = np.concatenate(data, axis=0)
+        #data = [transforms(image, landmarks) for image, landmarks in zip(images, landmarks_arr)]
+        data = transforms(image, landmarks)
 
         feed_dict = {self.input: data}
         embeddings = self.sess.run(self.output, feed_dict=feed_dict)
 
         distances = spatial.distance.cdist(self.insiders[:, :-1], embeddings)
         min_arg = np.argmin(distances, axis=0)
-        classes = self.insiders[min_arg, -1].astype('int')
-        min_distances = np.array([distances[arg, i] for i, arg in enumerate(min_arg)])
+        class_ = self.insiders[min_arg, -1].astype('int')
+        min_distance = np.array([distances[arg, i] for i, arg in enumerate(min_arg)])
 
-        print(np.mean(min_distances))
-        with open('src/min_distances.log', 'a') as file:
-            file.write(str(np.mean(min_distances)) + '\n')
+        print(np.mean(min_distance))
 
-        ans = sum((min_distances < self.threshold).astype('int'))/min_distances.size
-        if ans > 0.5:
-            classes = list(classes)
-            return max(classes, key=classes.count)
+        if min_distance < self.threshold:
+            return class_[0]
         else:
             return -1
 

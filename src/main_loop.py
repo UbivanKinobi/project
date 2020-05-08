@@ -12,19 +12,16 @@ warnings.filterwarnings("ignore")
 class TimeContainer:
     def __init__(self):
         self.timer = time.time()
-        self.images = []
-        self.landmarks_arr = []
+        self.classes_ = []
 
-    def add(self, image, landmarks):
+    def add(self, class_):
         if time.time() - self.timer > 5:
             self.clear()
-        self.images.append(image)
-        self.landmarks_arr.append(landmarks)
+        self.classes_.append(class_)
         self.timer = time.time()
 
     def clear(self):
-        self.images.clear()
-        self.landmarks_arr.clear()
+        self.classes_.clear()
 
 
 def loop():
@@ -61,33 +58,29 @@ def loop():
         landmarks = detector.detect_face_haarcascad(gray)
 
         if landmarks is not None:
-            # collect 9 images and start identification
-            if len(container.images) <= 9:
-                container.add(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), landmarks)
 
-                # show landmarks
-                for (i, (x, y)) in enumerate(landmarks):
-                    cv2.circle(frame_for_print, (x, y), 1, (0, 0, 255), -1)
-                cv2.imshow('Camera', frame_for_print)
-            else:
-                # print some information
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                cv2.putText(frame_for_print, 'Starting calculations...', (15, camera_shape[0] - 15),
-                            font, 1, (0, 255, 0), 2)
-                cv2.imshow('Camera', frame_for_print)
-                cv2.waitKey(1)
+            # show landmarks
+            for (i, (x, y)) in enumerate(landmarks):
+                cv2.circle(frame_for_print, (x, y), 1, (0, 0, 255), -1)
+            cv2.imshow('Camera', frame_for_print)
 
-                # face identification
-                start_time = time.time()
-                insider = nn.predict(container.images, container.landmarks_arr)
-                print('Calculation time: ' + str(round((time.time() - start_time) * 1000, 3)) + 'ms')
+            # face identification
+            start_time = time.time()
+            class_ = nn.predict(frame, landmarks)
+            print('Calculation time: ' + str(round((time.time() - start_time) * 1000, 3)) + 'ms')
+
+            container.add(class_)
+
+            # final verdict
+            if len(container.classes_) >= 5:
+                insider = max(set(container.classes_), key=container.classes_.count)
                 if insider != -1:
                     access_granted(stream, camera_shape, nn.classes[insider])
                 else:
                     access_denied(stream, camera_shape)
-
-                # clearing container to be ready for new face
+                # clearing container to be ready for new faces
                 container.clear()
+
         else:
             cv2.imshow('Camera', frame_for_print)
 
