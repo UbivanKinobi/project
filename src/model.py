@@ -28,8 +28,7 @@ def transforms(image, landmarks, mtcnn=False):
     tform.estimate(dst, src)
     tform = tform.params[0:2, :]
     warped = (cv2.warpAffine(image, tform, (112, 112), borderValue=0.0) - 127.5) / 128.0
-    tensor = warped.reshape((1, 112, 112, 3))
-    return tensor
+    return warped
 
 
 def load_graph(frozen_graph_filename):
@@ -53,6 +52,8 @@ class NN:
         feed_dict = {self.input: np.zeros((1, 112, 112, 3))}
         self.sess.run(self.output, feed_dict=feed_dict)
         self.threshold = threshold
+        self.last_photo = 0
+        self.min_dist = 0
         if load:
             self.insiders = np.load('src/insiders_data/embeddings_matrix.npy')
             self.classes = load_obj('src/insiders_data/classes.json')
@@ -65,19 +66,17 @@ class NN:
             print('Insiders are not indicated')
             return -1
 
-        data = transforms(image, landmarks)
+        self.last_photo = transforms(image, landmarks)
 
-        feed_dict = {self.input: data}
+        feed_dict = {self.input: self.last_photo.reshape((1, 112, 112, 3))}
         embeddings = self.sess.run(self.output, feed_dict=feed_dict)
 
         distances = spatial.distance.cdist(self.insiders[:, :-1], embeddings)
         min_arg = np.argmin(distances, axis=0)
         class_ = self.insiders[min_arg, -1].astype('int')
-        min_distance = np.array([distances[arg, i] for i, arg in enumerate(min_arg)])
+        self.min_dist = float(distances[min_arg])
 
-        print(np.mean(min_distance))
-
-        if min_distance < self.threshold:
+        if self.min_dist < self.threshold:
             return str(class_[0])
         else:
             return -1
@@ -99,7 +98,7 @@ class NN:
             print('No faces in the image: ' + path_to_image)
             return -1
 
-        data = transforms(np.array(image), landmarks, mtcnn=True)
+        data = transforms(np.array(image), landmarks, mtcnn=True).reshape((1, 112, 112, 3))
 
         feed_dict = {self.input: data}
         embeddings = self.sess.run(self.output, feed_dict=feed_dict)

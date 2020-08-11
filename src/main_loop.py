@@ -4,6 +4,8 @@ from src.detectors import ClassicalDetector
 from src.model import NN
 import time
 import cv2
+import sqlite3 as sql
+from datetime import datetime
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -13,15 +15,23 @@ class TimeContainer:
     def __init__(self):
         self.timer = time.time()
         self.classes_ = []
+        self.photo = []
+        self.dists = []
 
-    def add(self, class_):
+    def add(self, class_, dist):
         if time.time() - self.timer > 5:
             self.clear()
         self.classes_.append(class_)
+        self.dists.append(dist)
         self.timer = time.time()
 
     def clear(self):
         self.classes_.clear()
+        self.dists.clear()
+
+    def create_log_data(self, name):
+        data = [name, self.photo, datetime.now()] + self.dists
+        return data
 
 
 def loop():
@@ -36,6 +46,22 @@ def loop():
     print('[INFO] Loading detectors...')
     detector = ClassicalDetector()
     print('[INFO] Done')
+
+    con = sql.connect('log.db')  # connection to db
+    with con:
+        query = """
+        CREATE TABLE If NOT EXISTS access_control_log (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        name TINYTEXT,
+        photo BLOB,
+        datetime DATETIME,
+        dist_1 DOUBLE,
+        dist_2 DOUBLE,
+        dist_3 DOUBLE,
+        dist_4 DOUBLE,
+        dist_5 DOUBLE );
+        """
+        con.execute(query)
 
     print('[INFO] Starting webcam stream...')
     stream = WebcamVideoStream(src=0).start()
@@ -73,14 +99,17 @@ def loop():
             class_ = nn.predict(frame, landmarks)
             print('Calculation time: ' + str(round((time.time() - start_time) * 1000, 3)) + 'ms')
 
-            container.add(class_)
+            container.add(class_, nn.min_dist)
 
-            # final verdict
+            # final verdict + logging
             if len(container.classes_) >= 5:
                 insider = max(set(container.classes_), key=container.classes_.count)
+                container.photo = nn.last_photo
                 if insider != -1:
+                    make_log(con, container.create_log_data(nn.classes[insider]))
                     access_granted(stream, camera_shape, nn.classes[insider])
                 else:
+                    make_log(con, container.create_log_data(nn.classes[insider]))
                     access_denied(stream, camera_shape)
                 # clearing container to be ready for new faces
                 container.clear()
@@ -105,6 +134,16 @@ def loop():
     # do a bit of cleanup
     stream.stop()
     cv2.destroyAllWindows()
+
+
+def make_log(con, data):
+    query = """
+    INSERT INTO access_control_log (name, photo, datetime, dist_1, dist_2, dist_3, dist_4, dist_5 ) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+    """
+    with con:
+        con.execute(query, data)
+        print('log has been writen')
 
 
 def access_granted(stream, camera_shape, insider):
