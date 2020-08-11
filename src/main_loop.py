@@ -109,7 +109,7 @@ def loop():
                     make_log(con, container.create_log_data(nn.classes[insider]))
                     access_granted(stream, camera_shape, nn.classes[insider])
                 else:
-                    make_log(con, container.create_log_data(nn.classes[insider]))
+                    make_log(con, container.create_log_data('alien'))
                     access_denied(stream, camera_shape)
                 # clearing container to be ready for new faces
                 container.clear()
