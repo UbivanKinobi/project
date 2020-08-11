@@ -5,7 +5,7 @@ from src.detectors import detect_face_mtcnn
 import numpy as np
 import cv2
 import tensorflow as tf
-import pickle
+import json
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -44,7 +44,7 @@ def load_graph(frozen_graph_filename):
 
 
 class NN:
-    def __init__(self, load: bool = True, threshold: float = 0.9):
+    def __init__(self, load: bool = True, threshold: float = 0.8):
         path_to_graph = 'src/frozen_graph.pb'
         self.graph = load_graph(path_to_graph)
         self.sess = tf.compat.v1.Session(graph=self.graph)
@@ -55,7 +55,7 @@ class NN:
         self.threshold = threshold
         if load:
             self.insiders = np.load('src/insiders_data/embeddings_matrix.npy')
-            self.classes = load_obj('src/insiders_data/classes.pkl')
+            self.classes = load_obj('src/insiders_data/classes.json')
         else:
             self.insiders = None
             self.classes = {}
@@ -65,7 +65,6 @@ class NN:
             print('Insiders are not indicated')
             return -1
 
-        #data = [transforms(image, landmarks) for image, landmarks in zip(images, landmarks_arr)]
         data = transforms(image, landmarks)
 
         feed_dict = {self.input: data}
@@ -79,9 +78,19 @@ class NN:
         print(np.mean(min_distance))
 
         if min_distance < self.threshold:
-            return class_[0]
+            return str(class_[0])
         else:
             return -1
+
+    def set_threshold(self):
+        aliens = np.load('src/data_tf.npy')
+        distances = spatial.distance.cdist(self.insiders[:, :-1], aliens)
+        min_distances = np.sort(np.min(distances, axis=0))
+        eps = 1e-3
+        length = min_distances.size
+        index = int(length*eps)
+        self.threshold = min_distances[index]
+        return
 
     def get_embedding(self, path_to_image):
         image = Image.open(path_to_image)
@@ -105,10 +114,10 @@ class NN:
 
 
 def save_obj(name, obj):
-    with open(name + '.pkl', 'wb') as f:
-        pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
+    with open(name + '.json', 'w') as f:
+        json.dump(obj, f)
 
 
 def load_obj(path):
-    with open(path, 'rb') as f:
-        return pickle.load(f)
+    with open(path, 'r') as f:
+        return json.loads(f.read())

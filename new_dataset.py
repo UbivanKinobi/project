@@ -28,7 +28,7 @@ def new_dataset(dataset_folder):
 
 def main():
     parser = argparse.ArgumentParser(description='Rewrite an embeddings_matrix and save new dataset')
-    parser.add_argument('--ds_folder', type=str, help='Full path to dataset folder'
+    parser.add_argument('--ds-folder', type=str, help='Full path to dataset folder. '
                                                       'Names of internal folders will be used as identifiers of persons'
                         )
     args = parser.parse_args()
