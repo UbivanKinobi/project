@@ -1,11 +1,11 @@
 from src.videoutils import WebcamVideoStream
-from src.videoutils import FPS
 from src.detectors import ClassicalDetector
 from src.model import NN
 import time
 import cv2
 import sqlite3 as sql
 from datetime import datetime
+import logging
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -34,52 +34,115 @@ class TimeContainer:
         return data
 
 
-def loop():
-    print('[INFO] Loading network...')
-    nn = NN()
-    print('[INFO] Done')
+def load_nn():
+    logger = logging.getLogger('main_loop.load_nn')
+    logger.info('Loading network')
+    try:
+        nn = NN()
+        return nn
+    except Exception as err:
+        logger.error(err)
+        return -1
 
-    #print('[INFO] Setting threshold...')
-    #nn.set_threshold()
-    #print('[INFO] Done')
 
-    print('[INFO] Loading detectors...')
-    detector = ClassicalDetector()
-    print('[INFO] Done')
+def load_detector():
+    logger = logging.getLogger('main_loop.load_detector')
+    logger.info('Loading detector')
+    try:
+        detector = ClassicalDetector()
+        return detector
+    except Exception as err:
+        logger.error(err)
+        return -1
 
-    con = sql.connect('log.db')  # connection to db
-    with con:
-        query = """
-        CREATE TABLE If NOT EXISTS access_control_log (
-        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-        name TINYTEXT,
-        photo BLOB,
-        datetime DATETIME,
-        dist_1 DOUBLE,
-        dist_2 DOUBLE,
-        dist_3 DOUBLE,
-        dist_4 DOUBLE,
-        dist_5 DOUBLE );
-        """
-        con.execute(query)
 
-    print('[INFO] Starting webcam stream...')
+def create_con():
+    # connect to log.db and create table if not exist
+    logger = logging.getLogger('main_loop.create_con')
+    logger.info('Creating connection to database')
+    try:
+        con = sql.connect('log.db')
+        with con:
+            query = """
+                CREATE TABLE If NOT EXISTS access_control_log (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                name TINYTEXT,
+                photo BLOB,
+                datetime DATETIME,
+                dist_1 DOUBLE,
+                dist_2 DOUBLE,
+                dist_3 DOUBLE,
+                dist_4 DOUBLE,
+                dist_5 DOUBLE );
+                """
+            con.execute(query)
+        return con
+    except Exception as err:
+        logger.error(err)
+        return -1
+
+
+def load_webcam_stream():
+    logger = logging.getLogger('main_loop.load_webcam_stream')
+    logger.info('Starting webcam stream')
     stream = WebcamVideoStream(src=0).start()
     if not stream.is_opened():
-        print('[ERROR] failed to connect to camera')
-        return
+        logger.error('Failed to connect to camera')
+        return -1
     time.sleep(2.0)
-    fps = FPS().start()
-    print('[INFO] Done')
+    logger.info('Done')
+    return stream
 
+
+def create_logger():
+    logger = logging.getLogger('main_loop')
+    logger.setLevel(logging.INFO)
+    fh = logging.FileHandler('log.txt')
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    sh = logging.StreamHandler()
+    sh.setFormatter(formatter)
+    logger.addHandler(fh)
+    logger.addHandler(sh)
+    logger.info('System started')
+    return logger
+
+
+def loop():
+    # main preparations before loop
+    logger = create_logger()
+    nn = load_nn()
+    if nn == -1:
+        logger.info('End of program')
+        return
+    # nn.set_threshold()
+    detector = load_detector()
+    if detector == -1:
+        logger.info('End of program')
+        return
+    con = create_con()
+    if con == -1:
+        logger.info('End of program')
+        return
+    stream = load_webcam_stream()
+    if stream == -1:
+        logger.info('End of program')
+        return
+
+    # camera shape for cool drownings on images
     camera_shape = (int(stream.stream.get(cv2.CAP_PROP_FRAME_HEIGHT)),
                     int(stream.stream.get(cv2.CAP_PROP_FRAME_WIDTH)),
                     3)  # (480, 640, 3)
 
+    # data in this container exists only 5 seconds
+    # it was done for situation, when person goes away before 5 photos of him were made
     container = TimeContainer()
+
     # frame loop
+    logger.info('Starting frame loop')
     while True:
-        # grab the frame from the stream
+        # grabs the frame from the stream
+        # and makes 2 copies of it for detector (gray) and for drownings (frame_for_print)
         frame = stream.read()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         frame_for_print = frame.copy()
@@ -88,7 +151,6 @@ def loop():
         landmarks = detector.detect_face_haarcascad(gray)
 
         if landmarks is not None:
-
             # show landmarks
             for (i, (x, y)) in enumerate(landmarks):
                 cv2.circle(frame_for_print, (x, y), 1, (0, 0, 255), -1)
@@ -106,49 +168,53 @@ def loop():
                 insider = max(set(container.classes_), key=container.classes_.count)
                 container.photo = nn.last_photo
                 if insider != -1:
-                    make_log(con, container.create_log_data(nn.classes[insider]))
+                    write_log(con, container.create_log_data(nn.classes[insider]))
                     access_granted(stream, camera_shape, nn.classes[insider])
                 else:
-                    make_log(con, container.create_log_data('alien'))
+                    write_log(con, container.create_log_data('alien'))
                     access_denied(stream, camera_shape)
-                # clearing container to be ready for new faces
+
+                # clear container to be ready for new faces
                 container.clear()
 
         else:
+            # if no faces then just show frame
             cv2.imshow('Camera', frame_for_print)
 
         # key to stop loop
         key = cv2.waitKey(1) & 0xFF
         if key == ord("q"):
+            logger.info('Frame loop end\n')
             nn.close()
             break
 
-        # update the FPS counter
-        fps.update()
-
-    # stop the timer and display FPS information
-    fps.stop()
-    print("[INFO] elapsed time: {:.2f}".format(fps.elapsed()))
-    print("[INFO] approx. FPS: {:.2f}".format(fps.fps()))
-
     # do a bit of cleanup
     stream.stop()
+    con.close()
     cv2.destroyAllWindows()
 
 
-def make_log(con, data):
-    query = """
-    INSERT INTO access_control_log (name, photo, datetime, dist_1, dist_2, dist_3, dist_4, dist_5 ) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-    """
-    with con:
-        con.execute(query, data)
-        print('log has been writen')
+def write_log(con, data):
+    logger = logging.getLogger('main_loop.write_log')
+    try:
+        query = """
+        INSERT INTO access_control_log (name, photo, datetime, dist_1, dist_2, dist_3, dist_4, dist_5 ) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+        """
+        with con:
+            con.execute(query, data)
+            logger.info('Log was written to log.db')
+    except Exception as err:
+        logger.error(err)
 
 
 def access_granted(stream, camera_shape, insider):
+    # grant access for n seconds
+    logger = logging.getLogger('main_loop.access_granted')
+    logger.info('Access was granted')
+    n = 2  # change it to 5
     start_time = time.time()
-    while time.time() - start_time < 2:
+    while time.time() - start_time < n:
         frame = stream.read()
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(frame, 'ACCESS GRANTED TO ' + insider.upper(), (15, camera_shape[0] - 15),
@@ -158,8 +224,12 @@ def access_granted(stream, camera_shape, insider):
 
 
 def access_denied(stream, camera_shape):
+    # denied access and block loop for n seconds
+    logger = logging.getLogger('main_loop.access_denied')
+    logger.info('Access was denied')
+    n = 2
     start_time = time.time()
-    while time.time() - start_time < 2:
+    while time.time() - start_time < n:
         frame = stream.read()
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(frame, 'ACCESS DENIED', (15, camera_shape[0] - 15),

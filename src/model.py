@@ -6,29 +6,39 @@ import numpy as np
 import cv2
 import tensorflow as tf
 import json
+import logging
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from tensorflow.python.util import deprecation
 deprecation._PRINT_DEPRECATION_WARNINGS = False
+module_logger = logging.getLogger('main_loop.model')
 
 
 def transforms(image, landmarks, mtcnn=False):
-    src = np.array([
-        [38.2946, 51.6963],
-        [73.5318, 51.5014],
-        [56.0252, 71.7366],
-        [41.5493, 92.3655],
-        [70.7299, 92.2041]], dtype=np.float32)
+    # make transformations of image to feed it to nn
+    logger = logging.getLogger('main_loop.model.transforms')
+    try:
+        # positions of landmarks points
+        src = np.array([
+            [38.2946, 51.6963],
+            [73.5318, 51.5014],
+            [56.0252, 71.7366],
+            [41.5493, 92.3655],
+            [70.7299, 92.2041]], dtype=np.float32)
 
-    dst = landmarks.astype(np.float32)
-    if mtcnn:
-        dst = landmarks.reshape((2, 5)).T.astype(np.float32)
-    tform = trans.SimilarityTransform()
-    tform.estimate(dst, src)
-    tform = tform.params[0:2, :]
-    warped = (cv2.warpAffine(image, tform, (112, 112), borderValue=0.0) - 127.5) / 128.0
-    return warped
+        dst = landmarks.astype(np.float32)
+        # mtcnn return landmarks in different format than HaarCascade
+        if mtcnn:
+            dst = landmarks.reshape((2, 5)).T.astype(np.float32)
+        tform = trans.SimilarityTransform()
+        tform.estimate(dst, src)
+        tform = tform.params[0:2, :]
+        warped = (cv2.warpAffine(image, tform, (112, 112), borderValue=0.0) - 127.5) / 128.0
+        return warped
+    except Exception as err:
+        logger.error('Failed normalizing image: ' + str(err))
+        return -1
 
 
 def load_graph(frozen_graph_filename):
@@ -62,11 +72,15 @@ class NN:
             self.classes = {}
 
     def predict(self, image, landmarks):
+        logger = logging.getLogger('main_loop.model.nn.predict')
+        logger.info('Starting prediction')
         if len(self.insiders) == 0:
-            print('Insiders are not indicated')
+            logger.error('Insiders are not indicated')
             return -1
 
         self.last_photo = transforms(image, landmarks)
+        if self.last_photo is -1:
+            return
 
         feed_dict = {self.input: self.last_photo.reshape((1, 112, 112, 3))}
         embeddings = self.sess.run(self.output, feed_dict=feed_dict)
@@ -77,8 +91,10 @@ class NN:
         self.min_dist = float(distances[min_arg])
 
         if self.min_dist < self.threshold:
+            logger.info('Done prediction')
             return str(class_[0])
         else:
+            logger.info('Done prediction')
             return -1
 
     def set_threshold(self):
@@ -105,18 +121,37 @@ class NN:
         return embeddings
 
     def save_data(self):
-        np.save('src/insiders_data/embeddings_matrix', self.insiders)
-        save_obj('src/insiders_data/classes', self.classes)
+        logger = logging.getLogger('main_loop.model.nn.save_data')
+        logger.info('Saving embeddings matrix with classes')
+        try:
+            np.save('src/insiders_data/embeddings_matrix', self.insiders)
+            save_obj('src/insiders_data/classes', self.classes)
+            logger.info('Saved')
+        except Exception as err:
+            logger.error('Saving failed: ' + str(err))
 
     def close(self):
         self.sess.close()
 
 
 def save_obj(name, obj):
-    with open(name + '.json', 'w') as f:
-        json.dump(obj, f)
+    logger = logging.getLogger('main_loop.model.save_obj')
+    logger.info('Saving object')
+    try:
+        with open(name + '.json', 'w') as f:
+            json.dump(obj, f)
+        logger.info('Saved')
+    except Exception as err:
+        logger.error('Saving failed: ' + str(err))
 
 
 def load_obj(path):
-    with open(path, 'r') as f:
-        return json.loads(f.read())
+    logger = logging.getLogger('main_loop.model.load_obj')
+    logger.info('Loading object')
+    try:
+        with open(path, 'r') as f:
+            obj = json.loads(f.read())
+        logger.info('Loaded')
+        return obj
+    except Exception as err:
+        logger.error('Loading failed: ' + str(err))
