@@ -5,8 +5,8 @@ from src.detectors import detect_face_mtcnn
 import numpy as np
 import cv2
 import tensorflow as tf
-import json
 import logging
+import sqlite3 as sql
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -65,18 +65,12 @@ class NN:
         self.last_photo = 0
         self.min_dist = 0
         if load:
-            self.insiders = np.load('src/insiders_data/embeddings_matrix.npy')
-            self.classes = load_obj('src/insiders_data/classes.json')
-        else:
-            self.insiders = None
-            self.classes = {}
+            self.ds = load_dataset()
+            self.emp = load_employers()
 
     def predict(self, image, landmarks):
         logger = logging.getLogger('main_loop.model.nn.predict')
         logger.info('Starting prediction')
-        if len(self.insiders) == 0:
-            logger.error('Insiders are not indicated')
-            return -1
 
         self.last_photo = transforms(image, landmarks)
         if self.last_photo is -1:
@@ -85,21 +79,21 @@ class NN:
         feed_dict = {self.input: self.last_photo.reshape((1, 112, 112, 3))}
         embeddings = self.sess.run(self.output, feed_dict=feed_dict)
 
-        distances = spatial.distance.cdist(self.insiders[:, :-1], embeddings)
-        min_arg = np.argmin(distances, axis=0)
-        class_ = self.insiders[min_arg, -1].astype('int')
+        distances = spatial.distance.cdist(self.ds['embeddings'], embeddings)
+        min_arg = int(np.argmin(distances, axis=0))
+        name = self.ds['names'][min_arg]
         self.min_dist = float(distances[min_arg])
 
         if self.min_dist < self.threshold:
             logger.info('Done prediction')
-            return str(class_[0])
+            return name
         else:
             logger.info('Done prediction')
-            return -1
+            return 'alien'
 
     def set_threshold(self):
         aliens = np.load('src/data_tf.npy')
-        distances = spatial.distance.cdist(self.insiders[:, :-1], aliens)
+        distances = spatial.distance.cdist(self.ds['embedding'], aliens)
         min_distances = np.sort(np.min(distances, axis=0))
         eps = 1e-3
         length = min_distances.size
@@ -117,41 +111,49 @@ class NN:
         data = transforms(np.array(image), landmarks, mtcnn=True).reshape((1, 112, 112, 3))
 
         feed_dict = {self.input: data}
-        embeddings = self.sess.run(self.output, feed_dict=feed_dict)
-        return embeddings
-
-    def save_data(self):
-        logger = logging.getLogger('main_loop.model.nn.save_data')
-        logger.info('Saving embeddings matrix with classes')
-        try:
-            np.save('src/insiders_data/embeddings_matrix', self.insiders)
-            save_obj('src/insiders_data/classes', self.classes)
-            logger.info('Saved')
-        except Exception as err:
-            logger.error('Saving failed: ' + str(err))
+        embedding = self.sess.run(self.output, feed_dict=feed_dict).astype('float64')
+        return embedding
 
     def close(self):
         self.sess.close()
 
 
-def save_obj(name, obj):
-    logger = logging.getLogger('main_loop.model.save_obj')
-    logger.info('Saving object')
+def load_dataset():
+    logger = logging.getLogger('main_loop.model.load_dataset')
+    logger.info('Starting loading dataset')
+    con = sql.connect('dataset.db')
+    query = """
+    SELECT * FROM embeddings;
+    """
+    ds = {}
     try:
-        with open(name + '.json', 'w') as f:
-            json.dump(obj, f)
-        logger.info('Saved')
+        data = con.execute(query)
+        embeddings = []
+        names = []
+        for row in data:
+            embeddings.append(np.frombuffer(row[2]))
+            names.append(row[1])
+        ds['embeddings'] = np.vstack(embeddings)
+        ds['names'] = names
+        logger.info('Done loading dataset')
+        return ds
     except Exception as err:
-        logger.error('Saving failed: ' + str(err))
+        logger.error('Failed loading dataset: ' + str(err))
 
 
-def load_obj(path):
-    logger = logging.getLogger('main_loop.model.load_obj')
-    logger.info('Loading object')
+def load_employers():
+    logger = logging.getLogger('main_loop.model.load_employers')
+    logger.info('Starting loading employers')
+    con = sql.connect('dataset.db')
+    query = """
+    SELECT * FROM employers;
+    """
+    employers = {}
     try:
-        with open(path, 'r') as f:
-            obj = json.loads(f.read())
-        logger.info('Loaded')
-        return obj
+        data = con.execute(query)
+        for row in data:
+            employers[row[0]] = row[1]
+        logger.info('Done loading employers')
+        return employers
     except Exception as err:
-        logger.error('Loading failed: ' + str(err))
+        logger.error('Failed loading employers: ' + str(err))

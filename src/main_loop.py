@@ -6,6 +6,7 @@ import cv2
 import sqlite3 as sql
 from datetime import datetime
 import logging
+import collections
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -14,23 +15,23 @@ warnings.filterwarnings("ignore")
 class TimeContainer:
     def __init__(self):
         self.timer = time.time()
-        self.classes_ = []
-        self.photo = []
+        self.names = []
+        self.photos = []
         self.dists = []
 
-    def add(self, class_, dist):
+    def add(self, name, dist):
         if time.time() - self.timer > 5:
             self.clear()
-        self.classes_.append(class_)
+        self.names.append(name)
         self.dists.append(dist)
         self.timer = time.time()
 
     def clear(self):
-        self.classes_.clear()
+        self.names.clear()
         self.dists.clear()
 
-    def create_log_data(self, name):
-        data = [name, self.photo, datetime.now()] + self.dists
+    def create_log_data(self, name, was_passed):
+        data = [name, was_passed, self.photos, datetime.now()] + self.dists
         return data
 
 
@@ -64,9 +65,10 @@ def create_con():
         con = sql.connect('log.db')
         with con:
             query = """
-                CREATE TABLE If NOT EXISTS access_control_log (
+                CREATE TABLE IF NOT EXISTS access_control_log (
                 id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
                 name TINYTEXT,
+                was_passed TINYINT, 
                 photo BLOB,
                 datetime DATETIME,
                 dist_1 DOUBLE,
@@ -158,21 +160,24 @@ def loop():
 
             # face identification
             start_time = time.time()
-            class_ = nn.predict(frame, landmarks)
+            name = nn.predict(frame, landmarks)
             print('Calculation time: ' + str(round((time.time() - start_time) * 1000, 3)) + 'ms')
 
-            container.add(class_, nn.min_dist)
+            container.add(name, nn.min_dist)
 
             # final verdict + logging
-            if len(container.classes_) >= 5:
-                insider = max(set(container.classes_), key=container.classes_.count)
-                container.photo = nn.last_photo
-                if insider != -1:
-                    write_log(con, container.create_log_data(nn.classes[insider]))
-                    access_granted(stream, camera_shape, nn.classes[insider])
+            if len(container.names) >= 5:
+                name = list(collections.Counter(container.names).keys())[0]
+                container.photos = nn.last_photo
+                if name == 'alien':
+                    write_log(con, container.create_log_data('alien', 0))
+                    access_denied(stream, camera_shape, 'alien')
+                elif nn.emp[name] == 0:
+                    write_log(con, container.create_log_data(name, 0))
+                    access_denied(stream, camera_shape, name)
                 else:
-                    write_log(con, container.create_log_data('alien'))
-                    access_denied(stream, camera_shape)
+                    write_log(con, container.create_log_data(name, 1))
+                    access_granted(stream, camera_shape, name)
 
                 # clear container to be ready for new faces
                 container.clear()
@@ -198,8 +203,8 @@ def write_log(con, data):
     logger = logging.getLogger('main_loop.write_log')
     try:
         query = """
-        INSERT INTO access_control_log (name, photo, datetime, dist_1, dist_2, dist_3, dist_4, dist_5 ) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+        INSERT INTO access_control_log (name, was_passed, photo, datetime, dist_1, dist_2, dist_3, dist_4, dist_5 ) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
         with con:
             con.execute(query, data)
@@ -217,13 +222,15 @@ def access_granted(stream, camera_shape, insider):
     while time.time() - start_time < n:
         frame = stream.read()
         font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(frame, 'ACCESS GRANTED TO ' + insider.upper(), (15, camera_shape[0] - 15),
+        cv2.putText(frame, 'ACCESS GRANTED TO', (15, camera_shape[0] - 50),
+                    font, 1, (0, 255, 0), 2)
+        cv2.putText(frame, insider.upper(), (15, camera_shape[0] - 15),
                     font, 1, (0, 255, 0), 2)
         cv2.imshow('Camera', frame)
         cv2.waitKey(1)
 
 
-def access_denied(stream, camera_shape):
+def access_denied(stream, camera_shape, insider):
     # denied access and block loop for n seconds
     logger = logging.getLogger('main_loop.access_denied')
     logger.info('Access was denied')
@@ -232,8 +239,14 @@ def access_denied(stream, camera_shape):
     while time.time() - start_time < n:
         frame = stream.read()
         font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(frame, 'ACCESS DENIED', (15, camera_shape[0] - 15),
-                    font, 1, (0, 0, 255), 2)
+        if insider == 'alien':
+            cv2.putText(frame, 'ACCESS DENIED', (15, camera_shape[0] - 15),
+                        font, 1, (0, 0, 255), 2)
+        else:
+            cv2.putText(frame, 'ACCESS DENIED TO', (15, camera_shape[0] - 50),
+                        font, 1, (0, 0, 255), 2)
+            cv2.putText(frame, insider.upper(), (15, camera_shape[0] - 15),
+                        font, 1, (0, 0, 255), 2)
         cv2.imshow('Camera', frame)
         cv2.waitKey(1)
 
