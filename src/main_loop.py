@@ -208,6 +208,7 @@ def write_log(con, data):
         """
         with con:
             con.execute(query, data)
+            con.commit()
             logger.info('Log was written to log.db')
     except Exception as err:
         logger.error(err)

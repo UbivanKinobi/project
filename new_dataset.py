@@ -51,8 +51,9 @@ def new_dataset(dataset_folder):
                     continue
                 with con:
                     data = [folder, embedding]
-                    con.execute(query_emb, data)
+                    con.execute(query_emb, data)\
 
+    con.close()
     nn.close()
 
 
@@ -63,7 +64,6 @@ def main():
                         )
     args = parser.parse_args()
     ds_folder = args.ds_folder
-    ds_folder = 'src/dataset'
     if ds_folder == '':
         print('Specify the full path to dataset folder')
         return

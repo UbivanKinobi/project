@@ -1,25 +1,15 @@
 import argparse
-from src.model import *
+import sqlite3 as sql
 
 
 def delete_person(name):
-    nn = NN()
-    if name not in nn.classes.values():
-        print('No existing person name: ' + name)
-        return
-    key = -1
-    for k, n in nn.classes.items():
-        if n == name:
-            key = k
-            break
-    save_list = []
-    for i in range(nn.insiders.shape[0]):
-        if nn.insiders[i, -1] != key:
-            save_list.append(i)
-    nn.insiders = nn.insiders[save_list]
-    del nn.classes[key]
-    nn.save_data()
-    nn.close()
+    con = sql.connect('dataset.db')
+    query = """DELETE FROM employers WHERE name = '{}';""".format(name)
+    con.execute(query)
+    query = """DELETE FROM embeddings WHERE name = '{}';""".format(name)
+    con.execute(query)
+    con.commit()
+    con.close()
 
 
 def main():
@@ -31,7 +21,7 @@ def main():
         print('Specify the name of of already saved person')
         return
     delete_person(name)
-    print('Successful')
+    print('Person was deleted if exists in db')
     return
 
 
