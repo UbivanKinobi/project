@@ -62,12 +62,12 @@ def create_con():
     logger = logging.getLogger('main_loop.create_con')
     logger.info('Creating connection to database')
     try:
-        con = sql.connect('log.db')
+        con = sql.connect('dataset.db')
         with con:
             query = """
                 CREATE TABLE IF NOT EXISTS access_control_log (
                 id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-                name TINYTEXT,
+                nickname TINYTEXT NOT NULL,
                 was_passed TINYINT, 
                 photo BLOB,
                 datetime DATETIME,
@@ -75,7 +75,8 @@ def create_con():
                 dist_2 DOUBLE,
                 dist_3 DOUBLE,
                 dist_4 DOUBLE,
-                dist_5 DOUBLE );
+                dist_5 DOUBLE,
+                FOREIGN KEY (nickname) REFERENCES employers(nickname));
                 """
             con.execute(query)
         return con
@@ -159,25 +160,22 @@ def loop():
             cv2.imshow('Camera', frame_for_print)
 
             # face identification
-            start_time = time.time()
-            name = nn.predict(frame, landmarks)
-            print('Calculation time: ' + str(round((time.time() - start_time) * 1000, 3)) + 'ms')
-
-            container.add(name, nn.min_dist)
+            nickname = nn.predict(frame, landmarks)
+            container.add(nickname, nn.min_dist)
 
             # final verdict + logging
             if len(container.names) >= 5:
-                name = list(collections.Counter(container.names).keys())[0]
+                nickname = list(collections.Counter(container.names).keys())[0]
                 container.photos = nn.last_photo
-                if name == 'alien':
+                if nickname == 'alien':
                     write_log(con, container.create_log_data('alien', 0))
                     access_denied(stream, camera_shape, 'alien')
-                elif nn.emp[name] == 0:
-                    write_log(con, container.create_log_data(name, 0))
-                    access_denied(stream, camera_shape, name)
+                elif nn.emp[nickname] == 0:
+                    write_log(con, container.create_log_data(nickname, 0))
+                    access_denied(stream, camera_shape, nickname)
                 else:
-                    write_log(con, container.create_log_data(name, 1))
-                    access_granted(stream, camera_shape, name)
+                    write_log(con, container.create_log_data(nickname, 1))
+                    access_granted(stream, camera_shape, nickname)
 
                 # clear container to be ready for new faces
                 container.clear()
@@ -203,7 +201,7 @@ def write_log(con, data):
     logger = logging.getLogger('main_loop.write_log')
     try:
         query = """
-        INSERT INTO access_control_log (name, was_passed, photo, datetime, dist_1, dist_2, dist_3, dist_4, dist_5 ) 
+        INSERT INTO access_control_log (nickname, was_passed, photo, datetime, dist_1, dist_2, dist_3, dist_4, dist_5) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
         with con:
@@ -225,7 +223,7 @@ def access_granted(stream, camera_shape, insider):
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(frame, 'ACCESS GRANTED TO', (15, camera_shape[0] - 50),
                     font, 1, (0, 255, 0), 2)
-        cv2.putText(frame, insider.upper(), (15, camera_shape[0] - 15),
+        cv2.putText(frame, insider, (15, camera_shape[0] - 15),
                     font, 1, (0, 255, 0), 2)
         cv2.imshow('Camera', frame)
         cv2.waitKey(1)
@@ -246,7 +244,7 @@ def access_denied(stream, camera_shape, insider):
         else:
             cv2.putText(frame, 'ACCESS DENIED TO', (15, camera_shape[0] - 50),
                         font, 1, (0, 0, 255), 2)
-            cv2.putText(frame, insider.upper(), (15, camera_shape[0] - 15),
+            cv2.putText(frame, insider, (15, camera_shape[0] - 15),
                         font, 1, (0, 0, 255), 2)
         cv2.imshow('Camera', frame)
         cv2.waitKey(1)

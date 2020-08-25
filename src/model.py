@@ -7,6 +7,7 @@ import cv2
 import tensorflow as tf
 import logging
 import sqlite3 as sql
+import time
 
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -76,19 +77,22 @@ class NN:
         if self.last_photo is -1:
             return
 
+        start_time = time.time()
         feed_dict = {self.input: self.last_photo.reshape((1, 112, 112, 3))}
         embeddings = self.sess.run(self.output, feed_dict=feed_dict)
 
         distances = spatial.distance.cdist(self.ds['embeddings'], embeddings)
         min_arg = int(np.argmin(distances, axis=0))
-        name = self.ds['names'][min_arg]
+        nickname = self.ds['nicknames'][min_arg]
         self.min_dist = float(distances[min_arg])
 
         if self.min_dist < self.threshold:
-            logger.info('Done prediction')
-            return name
+            logger.info('Done prediction. Calculation time: {} ms'.format(
+                str(round((time.time() - start_time) * 1000, 3))))
+            return nickname
         else:
-            logger.info('Done prediction')
+            logger.info('Done prediction. Calculation time: {} ms'.format(
+                str(round((time.time() - start_time) * 1000, 3))))
             return 'alien'
 
     def set_threshold(self):
@@ -129,12 +133,12 @@ def load_dataset():
     try:
         data = con.execute(query)
         embeddings = []
-        names = []
+        nicknames = []
         for row in data:
             embeddings.append(np.frombuffer(row[2]))
-            names.append(row[1])
+            nicknames.append(row[1])
         ds['embeddings'] = np.vstack(embeddings)
-        ds['names'] = names
+        ds['nicknames'] = nicknames
         logger.info('Done loading dataset')
         return ds
     except Exception as err:
