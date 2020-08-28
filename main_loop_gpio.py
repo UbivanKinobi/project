@@ -7,6 +7,7 @@ import sqlite3 as sql
 from datetime import datetime
 import logging
 import collections
+import RPi.GPIO as GPIO
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -111,6 +112,21 @@ def create_logger():
     return logger
 
 
+def set_gpio():
+    logger = logging.getLogger('main_loop.set_gpio')
+    logger.info('Setting GPIO')
+    try:
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        GPIO.setup(17, GPIO.OUT)
+        GPIO.output(17, False)
+        logger.info('Done setting GPIO')
+        return 0
+    except Exception as err:
+        logger.error('Failed setting GPIO: {}'.format(err))
+        return -1
+
+
 def loop():
     # main preparations before loop
     logger = create_logger()
@@ -125,6 +141,10 @@ def loop():
         return
     con = create_con()
     if con == -1:
+        logger.info('End of program')
+        return
+    ans = set_gpio()
+    if ans == -1:
         logger.info('End of program')
         return
     stream = load_webcam_stream()
@@ -216,9 +236,15 @@ def access_granted(stream, camera_shape, insider):
     # grant access for n seconds
     logger = logging.getLogger('main_loop.access_granted')
     logger.info('Access was granted')
+    GPIO.output(17, True)
+
     n = 3
     start_time = time.time()
     while time.time() - start_time < n:
+
+        if time.time() - start_time < 1:
+            GPIO.output(17, False)
+
         frame = stream.read()
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(frame, 'ACCESS GRANTED TO', (15, camera_shape[0] - 50),
