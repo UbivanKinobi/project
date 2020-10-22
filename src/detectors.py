@@ -31,18 +31,18 @@ class ClassicalDetector:
         bboxes = self.face_detector.detectMultiScale(gray_image, 1.3, 5)
     
         if len(bboxes) == 0:
-            return None
+            return None, None
     
         max_index = max(range(len(bboxes)), key=lambda x: bboxes[x][2] * bboxes[x][3])
         face_rectangle = bboxes[max_index]
         x, y, w, h = face_rectangle[0], face_rectangle[1], face_rectangle[2], face_rectangle[3]
         space = w * h
         if space < 14000:
-            return None
+            return None, None
         face_rectangle = dlib.rectangle(left=x, top=y, right=x + w, bottom=y + h)
         shape = self.shape_predictor(gray_image, face_rectangle)
         coordinates = shape_to_np(shape)
-        return coordinates
+        return coordinates, (x, y, w, h)
 
 
 def detect_face_mtcnn(image):

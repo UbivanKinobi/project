@@ -1,1 +1,11 @@
 /src/
+.idea/
+.ipynb_checkpoints/
+Detectedface/
+dataset.db
+for_tests.py
+gipo_test.py
+log.txt
+raw/
+test_features.npy
+train_features.npy

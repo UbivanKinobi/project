@@ -7,6 +7,7 @@ import sqlite3 as sql
 from datetime import datetime
 import logging
 import collections
+import RPi.GPIO as GPIO
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -33,6 +34,9 @@ class TimeContainer:
     def create_log_data(self, name, was_passed):
         data = [name, was_passed, self.photos, datetime.now()] + self.dists
         return data
+
+    def __len__(self):
+        return len(self.names)
 
 
 def load_nn():
@@ -111,6 +115,21 @@ def create_logger():
     return logger
 
 
+def set_gpio():
+    logger = logging.getLogger('main_loop.set_gpio')
+    logger.info('Setting GPIO')
+    try:
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        GPIO.setup(17, GPIO.OUT)
+        GPIO.output(17, False)
+        logger.info('Done setting GPIO')
+        return 0
+    except Exception as err:
+        logger.error('Failed setting GPIO: {}'.format(err))
+        return -1
+
+
 def loop():
     # main preparations before loop
     logger = create_logger()
@@ -125,6 +144,10 @@ def loop():
         return
     con = create_con()
     if con == -1:
+        logger.info('End of program')
+        return
+    ans = set_gpio()
+    if ans == -1:
         logger.info('End of program')
         return
     stream = load_webcam_stream()
@@ -151,12 +174,18 @@ def loop():
         frame_for_print = frame.copy()
 
         # detect face and return face landmarks
-        landmarks = detector.detect_face_haarcascad(gray)
+        landmarks, bbox = detector.detect_face_haarcascad(gray)
 
         if landmarks is not None:
             # show landmarks
-            for (i, (x, y)) in enumerate(landmarks):
-                cv2.circle(frame_for_print, (x, y), 1, (0, 0, 255), -1)
+            # for (i, (x, y)) in enumerate(landmarks):
+            #     cv2.circle(frame_for_print, (x, y), 1, (0, 0, 255), -1)
+            # show bbox
+            frame_for_print = cv2.rectangle(frame_for_print, (bbox[0], bbox[1]), (bbox[0] + bbox[2], bbox[1] + bbox[3]),
+                                            color=(0, 0, 255), thickness=2)
+            if len(container) != 0:
+                frame_for_print = cv2.putText(frame, str(len(container)), (15, camera_shape[0] - 15),
+                                              cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
             cv2.imshow('Camera', frame_for_print)
 
             # face identification
@@ -216,9 +245,15 @@ def access_granted(stream, camera_shape, insider):
     # grant access for n seconds
     logger = logging.getLogger('main_loop.access_granted')
     logger.info('Access was granted')
+    GPIO.output(17, True)
+
     n = 3
     start_time = time.time()
     while time.time() - start_time < n:
+
+        if time.time() - start_time > 1:
+            GPIO.output(17, False)
+
         frame = stream.read()
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(frame, 'ACCESS GRANTED TO', (15, camera_shape[0] - 50),
