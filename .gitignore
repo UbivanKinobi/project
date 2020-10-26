@@ -1,4 +1,3 @@
-/src/
 .idea/
 .ipynb_checkpoints/
 Detectedface/
@@ -9,3 +8,7 @@ log.txt
 raw/
 test_features.npy
 train_features.npy
+dataset.json
+dataset/
+data_tf.npy
+__pycache__
