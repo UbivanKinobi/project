@@ -1,4 +1,3 @@
-/src/
 .idea/
 .ipynb_checkpoints/
 Detectedface/
@@ -9,3 +8,8 @@ log.txt
 raw/
 test_features.npy
 train_features.npy
+anti_spoofing_system_test.ipynb
+__pycache__
+data_tf.npy
+dataset/
+dataset.json
